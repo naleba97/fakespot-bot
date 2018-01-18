@@ -4,9 +4,11 @@ import os
 import re
 import json
 import urllib2
+import requests
 import time
 from selenium import webdriver
 from selenium.common.exceptions import NoSuchElementException
+from selenium.webdriver.firefox.options import Options
 from urllib import urlencode
 
 reddit = None
@@ -18,28 +20,50 @@ def setup():
 	global reddit, subreddit, posts_replied_to, driver
 
 	reddit = praw.Reddit('fs_bot')
-	subreddit = reddit.subreddit("testingground4bots")
-	driver = webdriver.Firefox()
+	subreddit = reddit.subreddit("buildapcsales")
+
+	options = Options()
+	options.add_argument("--headless")
+	driver = webdriver.Firefox(firefox_options = options)
+
+	if not os.path.isfile("posts_replied_to.txt"):
+		posts_replied_to = []
+	else:
+		with open("posts_replied_to.txt", "r") as f:
+			posts_replied_to = f.read()
+			posts_replied_to = posts_replied_to.split()
 
 
 
 def run():
-	global posts_replied_to, driver
-	driver = webdriver.Firefox()
+	global posts_replied_to
 	print("Listening for posts from amazon.com")
 	try:
-		for post in subreddit.stream.submissions():
-			if submission.id not in posts_replied_to:
-				if re.search("amazon.com", submission.url, re.IGNORECASE):
-					search(submission.url)
+		for comment in subreddit.stream.comments():
+			if comment.submission.id not in posts_replied_to:
+				submission = comment.submission
+				if re.search("!fs_bot", comment.body, re.IGNORECASE):
+					if re.search("amazon.com", submission.url, re.IGNORECASE):
+						reply = search(submission.url)
+						print(reply)
+
+						posts_replied_to.append(submission.id)
+						mark_post_as_replied(submission.id)
+
 					
 	except prawcore.exceptions.RequestException:
-		print("Reddit API has a problem. Restart the bot.")
+		print("Reddit API has a problem. Restarting bot.")
 		run()
 
 
 
 def search(url):
+	"""
+	Searches the Fakespot website for the requested Amazon product.
+	Returns the correct reply depending on the result. 
+	"""
+	global driver
+	
 	print("Searching for reviews for " + url)		
 	
 	fakespot_url = "https://www.fakespot.com/analyze/?"
@@ -65,12 +89,11 @@ def search(url):
 
 		else:
 			pass 
-		comment = make_comment(final_html)
-		print(comment)
+		comment = make_comment(final_html, driver.current_url)
+		return comment
 	else:
-		print("Not enough reviews for analysis")
+		return "Not enough reviews for analysis"
 
-	driver.close()
 
 def check_class_name(class_name):
 	"""
@@ -98,12 +121,16 @@ def wait_rendering(class_name):
 		pass
 
 
-def make_comment(html):
+def make_comment(html, url):
+	"""
+	Creates and concatenate the parts of the reply.
+	"""
 	header = create_header(html)
 	grade = get_grade(html)
 	total_reviews = get_total_reviews(html)
+	redirect = get_redirect(url)
 
-	return header+grade+total_reviews
+	return header+grade+total_reviews+redirect
 
 
 def check_reanalyze(html, url, driver):
@@ -131,6 +158,12 @@ def create_header(html):
 	reg = re.search("<title>([\w\s|]*)", html)
 	return "**" + reg.group(1) + "**\n"
 
+def get_redirect(url):
+	"""
+	Creates a hyperlink to the original Fakespot review and returns it.
+	"""
+	return "[Full Fakespot Review](" + url + " \"" + url + "\")\n"
+
 def get_total_reviews(html):
 	"""
 	Searches and returns the current total amount of reviews.
@@ -146,10 +179,14 @@ def get_grade(html):
 	reg = re.search("Fakespot Grade</div><p>(A|B|C|D|F)",html)
 	return "Fakespot Grade: " + reg.group(1) + "\n"
 
-
-def print_grade():	
-	print()
+def mark_post_as_replied(submission_id):
+	"""
+	Adds the original submission's ID to the text file.
+	"""
+	with open("posts_replied_to.txt", "a+") as f:
+		f.write(submission_id + "\n")
 
 if __name__ == '__main__':
-	#setup()
-	search()
+	setup()
+	run()
+	
