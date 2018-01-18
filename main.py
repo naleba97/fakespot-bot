@@ -4,10 +4,9 @@ import os
 import re
 import json
 import urllib2
-import requests
 import time
 from selenium import webdriver
-import selenium.common.exceptions
+from selenium.common.exceptions import NoSuchElementException
 from urllib import urlencode
 
 reddit = None
@@ -24,38 +23,25 @@ def setup():
 
 
 
-def search():
+def run():
 	global posts_replied_to, driver
 	driver = webdriver.Firefox()
-	'''
 	print("Listening for posts from amazon.com")
 	try:
 		for post in subreddit.stream.submissions():
 			if submission.id not in posts_replied_to:
 				if re.search("amazon.com", submission.url, re.IGNORECASE):
-
-					url = "https://www.amazon.com/Asmodee-60522QNG-Chicago-Express/dp/B001LPGS1S?SubscriptionId=AKIAJ7T5BOVUVRD2EFYQ&tag=camelproducts-20&linkCode=xm2&camp=2025&creative=165953&creativeASIN=B001LPGS1S"
-
-					fakespot_url = "https://www.fakespot.com/analyze/?"
-
-					params = {'url' : url}
-
-					req = requests.get(fakespot_url + urlencode(params)) 
-					print(req.status_code)
-					try:
-						page = urllib2.urlopen(req.url)
-						raw_html = page.read()
-						print(raw_html)
-					except urllib2.URLError:
-						print("error")
+					search(submission.url)
+					
 	except prawcore.exceptions.RequestException:
 		print("Reddit API has a problem. Restart the bot.")
-		search()
-	'''
+		run()
 
-	#Test code
-	url = "https://www.amazon.com/Surprise-Outrageous-Littles-Sisters-Friends/dp/B0755K9DJ8/ref=pd_bxgy_21_img_3?_encoding=UTF8&pd_rd_i=B0755K9DJ8&pd_rd_r=XEPVNYBT9VZRWQPJEVWM&pd_rd_w=YGtkS&pd_rd_wg=2LVUt&psc=1&refRID=XEPVNYBT9VZRWQPJEVWM"
 
+
+def search(url):
+	print("Searching for reviews for " + url)		
+	
 	fakespot_url = "https://www.fakespot.com/analyze/?"
 
 	params = {'url' : url}
@@ -64,49 +50,71 @@ def search():
 
 	driver.get(full_url)
 
-	print(driver.current_url)
+	wait_rendering("loading-text")
+	wait_rendering("analysis-status")
 
-	try:
+	final_html = driver.page_source
+
+	if not check_class_name("alert-danger"):
 		result = check_reanalyze(driver.page_source, driver.current_url, driver)
 
 		if result:
-			try:
-				while driver.find_element_by_class_name("analysis-status"):
-					time.sleep(5)	
-					pass
+			wait_rendering("analysis-status")
 
-				grade = get_grade(driver.page_source)
+			final_html = driver.page_source
 
-				total_reviews = get_total_reviews(driver.page_source)
-
-				print(total_reviews)
-			
-				print(grade)
-
-			except selenium.common.exceptions.ElementNotSelectableException
 		else:
-			html = driver.page_source
-			grade = get_grade(html)
+			pass 
+		comment = make_comment(final_html)
+		print(comment)
+	else:
+		print("Not enough reviews for analysis")
 
-			total_reviews = get_total_reviews(html)
+	driver.close()
 
-			print(total_reviews)
-			print(grade)
+def check_class_name(class_name):
+	"""
+	Checks whether an element with the class name exists in the DOM.
+	"""
+	global driver
+	try:
+		if driver.find_element_by_class_name(class_name):
+			return True
+	except NoSuchElementException:
+		return False
+	return False
 
-		driver.close()
-		
-		
+def wait_rendering(class_name):
+	"""
+	Waits for a page to finish rendering by checking whether an element
+	with the class name still exists.
+	"""
+	global driver
+	try:
+		while driver.find_element_by_class_name(class_name):
+			time.sleep(5)
+			pass
+	except NoSuchElementException:
+		pass
 
-	except urllib2.URLError:
-		print("error")
 
-'''
-Checks whether the currently displayed analysis is old. If so, make a GET request to reanalyze the site.
-'''
+def make_comment(html):
+	header = create_header(html)
+	grade = get_grade(html)
+	total_reviews = get_total_reviews(html)
+
+	return header+grade+total_reviews
+
+
 def check_reanalyze(html, url, driver):
+	"""
+	Checks whether the currently displayed analysis is old. 
+	If so, make a GET request to reanalyze the site and return True.
+	"""
+
 	if re.search("This analysis is quite old", html):
 		fakespot_url = "https://www.fakespot.com/reanalyze/"
-		reg = re.search("/reanalyze/([0-9A-Za-z]*)\"", html)
+		reg = re.search("/reanalyze/(\w*)\"", html)
 		fakespot_url = fakespot_url + reg.group(1)
 		req = requests.get(fakespot_url)
 		driver.get(url)
@@ -115,16 +123,28 @@ def check_reanalyze(html, url, driver):
 	else:
 		return False
 
+def create_header(html):
+	"""
+	Creates the header of the comment and returns it.
+	"""
+
+	reg = re.search("<title>([\w\s|]*)", html)
+	return "**" + reg.group(1) + "**\n"
+
 def get_total_reviews(html):
+	"""
+	Searches and returns the current total amount of reviews.
+	"""
+
 	reg = re.search("Total Reviews</div><p>([0-9]*)", html)
-	return reg.group(1)
+	return "Total number of reviews: " + reg.group(1) + "\n"
 
 def get_grade(html):
+	"""
+	Searches and returns the current Fakespot grade.
+	"""
 	reg = re.search("Fakespot Grade</div><p>(A|B|C|D|F)",html)
-	return reg.group(1)
-
-def comment_grade(grade):
-	return "Fakespot Grade: " + grade + "\n"
+	return "Fakespot Grade: " + reg.group(1) + "\n"
 
 
 def print_grade():	
