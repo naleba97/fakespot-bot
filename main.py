@@ -20,7 +20,7 @@ def setup():
 	global reddit, subreddit, posts_replied_to, driver
 
 	reddit = praw.Reddit('fs_bot')
-	subreddit = reddit.subreddit("buildapcsales")
+	subreddit = reddit.subreddit("testingground4bots")
 
 	options = Options()
 	options.add_argument("--headless")
@@ -37,7 +37,7 @@ def setup():
 
 def run():
 	global posts_replied_to
-	print("Listening for posts from amazon.com")
+	print("Listening for the command !fs_bot...")
 	try:
 		for comment in subreddit.stream.comments():
 			if comment.submission.id not in posts_replied_to:
@@ -45,15 +45,32 @@ def run():
 				if re.search("!fs_bot", comment.body, re.IGNORECASE):
 					if re.search("amazon.com", submission.url, re.IGNORECASE):
 						reply = search(submission.url)
-						print(reply)
+						print("Printing reply... \n" + reply)
+						
+						comment.reply(reply)
 
 						posts_replied_to.append(submission.id)
 						mark_post_as_replied(submission.id)
 
 					
 	except prawcore.exceptions.RequestException:
-		print("Reddit API has a problem. Restarting bot.")
+		print("Reddit API has a problem. Restarting bot...")
 		run()
+	except praw.exceptions.APIException as e:
+		print(e.message + "\n")
+		reg = re.search("try again in ([0-9]*) minutes", e.message)
+		if reg:
+			print("Waiting for " + reg.group(1) + " minutes...\n")
+			time.sleep(int(reg.group(1))*60 + 60)
+		else:
+			print("Waiting for 10 minutes...\n")
+			time.sleep(600)
+		print("Restarting bot...")
+		run()
+			
+
+
+
 
 
 
@@ -138,7 +155,6 @@ def check_reanalyze(html, url, driver):
 	Checks whether the currently displayed analysis is old. 
 	If so, make a GET request to reanalyze the site and return True.
 	"""
-
 	if re.search("This analysis is quite old", html):
 		fakespot_url = "https://www.fakespot.com/reanalyze/"
 		reg = re.search("/reanalyze/(\w*)\"", html)
@@ -156,13 +172,13 @@ def create_header(html):
 	"""
 
 	reg = re.search("<title>([\w\s|]*)", html)
-	return "**" + reg.group(1) + "**\n"
+	return "**" + reg.group(1) + "**\n\n"
 
 def get_redirect(url):
 	"""
 	Creates a hyperlink to the original Fakespot review and returns it.
 	"""
-	return "[Full Fakespot Review](" + url + " \"" + url + "\")\n"
+	return "> [Full Fakespot Review](" + url + " \"" + url + "\")\n\n"
 
 def get_total_reviews(html):
 	"""
@@ -170,14 +186,14 @@ def get_total_reviews(html):
 	"""
 
 	reg = re.search("Total Reviews</div><p>([0-9]*)", html)
-	return "Total number of reviews: " + reg.group(1) + "\n"
+	return "Total number of reviews: " + reg.group(1) + "\n\n"
 
 def get_grade(html):
 	"""
 	Searches and returns the current Fakespot grade.
 	"""
 	reg = re.search("Fakespot Grade</div><p>(A|B|C|D|F)",html)
-	return "Fakespot Grade: " + reg.group(1) + "\n"
+	return "Fakespot Grade: " + reg.group(1) + "\n\n"
 
 def mark_post_as_replied(submission_id):
 	"""
